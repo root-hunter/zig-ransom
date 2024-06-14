@@ -23,8 +23,11 @@ pub fn main() !void {
     var i: usize = 0;
     while (i < fileList.items.len) {
         const filePath = fileList.items[i];
-        try engine.encryptFile(allocator, filePath, &digest);
-        try engine.decryptFile(allocator, filePath, &digest);
+        const file = try engine.File.init(allocator, filePath);
+
+        try file.encrypt(allocator, digest);
+
+        std.log.debug("{any}", .{file});
 
         i += 1;
     }
