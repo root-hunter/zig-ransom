@@ -25,9 +25,19 @@ pub fn main() !void {
         const filePath = fileList.items[i];
         const file = try engine.File.init(allocator, filePath);
 
-        try file.encrypt(allocator, digest);
+        //try file.encrypt(allocator, digest);
+        defer file.deinit();
 
-        std.log.debug("{any}", .{file});
+        i += 1;
+    }
+
+    i = 0;
+    while (i < fileList.items.len) {
+        const filePath = fileList.items[i];
+        const file = try engine.File.init(allocator, filePath);
+
+        try file.decrypt(allocator, digest);
+        defer file.deinit();
 
         i += 1;
     }

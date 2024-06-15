@@ -22,7 +22,6 @@ pub const Chunk = struct {
 
     pub fn pack(self: Chunk, allocator: std.mem.Allocator) ![]const u8 {
         const size = aes.tag_length + self.data.len;
-        std.log.debug("LEN: {}", .{self.data.len});
 
         var tmp = try allocator.alloc(u8, size);
 
@@ -47,12 +46,32 @@ pub const Chunk = struct {
         return tmp;
     }
 
-    pub fn encrypt(self: Chunk) !void {
-        _ = self;
+    pub fn unpackTag(content: [] u8) [aes.tag_length] u8 {
+        var tmp = [_]u8{0} ** aes.tag_length;
+        
+        var i: usize = 0;
+        while (i < aes.tag_length) {
+            tmp[i] = content[i];
+
+            i += 1;
+        }
+
+        return tmp;
     }
 
-    pub fn decrypt(self: Chunk) !void {
-        _ = self;
+    pub fn unpackCipherText(allocator: std.mem.Allocator, content: [] u8) ![] u8 {
+        var tmp = try allocator.alloc(u8, content.len - aes.tag_length);
+        
+        var k: usize = 0;
+        var i: usize = aes.tag_length;
+        while (k < content.len - aes.tag_length) {
+            tmp[k] = content[i];
+
+            i += 1;
+            k += 1;
+        }
+
+        return tmp;
     }
 };
 
@@ -65,17 +84,24 @@ pub const File = struct {
     chunks: *std.ArrayList(Chunk),
 
     pub fn init(allocator: std.mem.Allocator, filePath: []const u8) !File {
-        var file = try std.fs.openFileAbsolute(filePath, std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_write });
+        var file = try std.fs.openFileAbsolute(filePath, std.fs.File.OpenFlags{ 
+            .mode = std.fs.File.OpenMode.read_write
+        });
         errdefer file.close();
 
         const chunks = try allocator.create(std.ArrayList(Chunk));
 
         chunks.* = std.ArrayList(Chunk).init(allocator);
 
-        return File{ .file = file, .filePath = filePath, .chunks = chunks, .metadata = try file.metadata() };
+        return File{ 
+            .file = file,
+            .filePath = filePath,
+            .chunks = chunks,
+            .metadata = try file.metadata()
+        };
     }
 
-    pub fn deinit(self: File) !void {
+    pub fn deinit(self: File) void {
         self.chunks.deinit();
         self.file.close();
     }
@@ -106,7 +132,7 @@ pub const File = struct {
 
             const chunk = try Chunk.init(allocator, cipherText, tag);
 
-            if (j < 1000) {
+            if (j < 10) {
                 std.log.debug("startSlice: {} endSlice {}", .{ startSlice, endSlice });
                 std.log.debug("startTag: {} endTag {}", .{ endSlice, endSlice + aes.tag_length });
 
@@ -133,14 +159,71 @@ pub const File = struct {
 
             _ = try writer.write(pack);
 
-            std.log.debug("({}): {any}", .{pack.len, pack});
-
             i += 1;
         }
     }
 
-    pub fn decrypt(self: File) !void {
-        _ = self;
+    pub fn decrypt(self: File, allocator: std.mem.Allocator, digest: [aes.key_length]u8) !void {
+        const content = try self.file.readToEndAlloc(allocator, 1024 * 1024 * 512);
+        const size = (CHUNK_SIZE + aes.tag_length);
+
+        const chunkCount: usize = if(content.len % (CHUNK_SIZE  + aes.tag_length) != 0) 
+                (content.len / (CHUNK_SIZE  + aes.tag_length)) + 1
+            else
+                (content.len / (CHUNK_SIZE  + aes.tag_length));
+
+        std.log.debug("FILE SIZE: {}\nCHUNK COUNT: {}", .{ content.len, chunkCount });
+
+        var j: usize = 0;
+        while (j < chunkCount) {
+            const startSlice = (j * size);
+            const endSlice = if ((j + 1) * size <= content.len)
+                ((j + 1) * size)
+            else
+                content.len;
+
+            const chunkContent = content[startSlice..endSlice];
+
+            const tag = Chunk.unpackTag(chunkContent);
+            const cipherText = try Chunk.unpackCipherText(allocator, chunkContent);
+
+            const npub = [_]u8{0} ** aes.nonce_length;
+            const ad = [_]u8{};
+
+            const message = try allocator.alloc(u8, cipherText.len);
+
+
+            if (j < 100) {
+                std.log.debug("startSlice: {} endSlice {}", .{ startSlice, endSlice });
+                std.log.debug("startTag: {} endTag {}", .{ endSlice, endSlice + aes.tag_length });
+
+                std.log.debug("{} DECRYPT ({}):({s})", .{ j, tag.len, tag });
+            }
+
+            try aes.decrypt(message, cipherText, tag, &ad, npub, digest);
+            const chunk = try Chunk.init(allocator, message, tag);
+
+            //_ = try self.file.write(chunk.data);
+            //_ = try self.file.write(&chunk.tag);
+
+            try self.chunks.*.append(chunk);
+
+            j += 1;
+        }
+
+
+        const writer = self.file.writer();
+        try self.file.seekTo(0);
+
+        var i: usize = 0;
+        while(i < self.chunks.*.items.len) {
+            const chunk = self.chunks.*.items[i];
+            _ = try writer.write(chunk.data);                        
+
+            i += 1;
+        }
+
+        try self.file.setEndPos(try self.file.getPos());
     }
 
     pub fn getSize(self: File) !u64 {
