@@ -1,5 +1,5 @@
 build-exe:
-	echo "TODO"
+	zig build-exe src/main.zig --name zig-ransom --build-id=sha1 -static
 
 rundev:
 	cp original.txt tests/a1.txt
