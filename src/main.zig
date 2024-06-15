@@ -25,7 +25,7 @@ pub fn main() !void {
         const filePath = fileList.items[i];
         const file = try engine.File.init(allocator, filePath);
 
-        //try file.encrypt(allocator, digest);
+        try file.encrypt(allocator, digest);
         defer file.deinit();
 
         i += 1;
