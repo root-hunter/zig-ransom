@@ -2,26 +2,93 @@ name: Makefile CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "stable" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "stable" ]
 
+env:
+  VERSION: 0.0.3
+  
 jobs:
-  build:
-
+  build-linux:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
+    - uses: goto-bus-stop/setup-zig@v2
+    
+    - name: Build linux release
+      run: make build-exe
 
-    - name: configure
-      run: ./configure
+    - name: Create release linux  archive
+      run: tar -cvzf zig-ransom-linux-v${{ env.VERSION }}.tar.gz bin/zig-ransom
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: linux-build
+        path: ./zig-ransom-linux-v${{ env.VERSION }}.tar.gz
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goto-bus-stop/setup-zig@v2
 
-    - name: Install dependencies
-      run: make
+      - name: Build release
+        run: zig build-exe src/main.zig --name zig-ransom --build-id=sha1 -static
+      - name: Create release archive
+        run: Compress-Archive -Path zig-ransom.exe -Destination zig-ransom-windows-v${{ env.VERSION }}.zip
 
-    - name: Run check
-      run: make check
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: windows-build
+          path: ./zig-ransom-windows-v${{ env.VERSION }}.zip
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Run distcheck
-      run: make distcheck
+      - name: Download Linux build
+        uses: actions/download-artifact@v2
+        with:
+          name: linux-build
+          path: ./linux-build
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v2
+        with:
+          name: windows-build
+          path: ./windows-build
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ env.VERSION }}
+          release_name: Release v${{ env.VERSION }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Linux build to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./linux-build/zig-ransom-linux-v${{ env.VERSION }}.tar.gz
+          asset_name: zig-ransom-linux-v${{ env.VERSION }}.tar.gz
+          asset_content_type: application/x-gzip
+
+      - name: Upload Windows build to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./windows-build/zig-ransom-windows-v${{ env.VERSION }}.zip
+          asset_name: zig-ransom-windows-v${{ env.VERSION }}.zip
+          asset_content_type: application/x-zip
