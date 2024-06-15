@@ -1,5 +1,5 @@
 build-exe:
-	zig build-exe src/main.zig --name zig-ransom --build-id=sha1 -static
+	zig build-exe src/main.zig --name zig-ransom --build-id=sha1 -static -O ReleaseSafe
 	mv zig-ransom* bin
 
 rundev:

@@ -34,7 +34,7 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
 
       - name: Build release
-        run: zig build-exe src/main.zig --name zig-ransom --build-id=sha1 -static
+        run: zig build-exe src/main.zig --name zig-ransom --build-id=sha1 -static -O ReleaseSafe
       - name: Create release archive
         run: Compress-Archive -Path zig-ransom.exe -Destination zig-ransom-windows-v${{ env.VERSION }}.zip
 
